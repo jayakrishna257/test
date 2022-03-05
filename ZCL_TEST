@@ -37,25 +37,36 @@ CLASS zcl_test DEFINITION
              qty_changed TYPE c LENGTH 1,
            END OF ty_quantity_upd_state.
 
-    CLASS-DATA: ms_material_upd_state TYPE ty_material_upd_state,
-                ms_quantity_upd_state TYPE ty_quantity_upd_state.
+*    CLASS-DATA: ms_material_upd_state TYPE ty_material_upd_state,
+*                ms_quantity_upd_state TYPE ty_quantity_upd_state.
 
     CLASS-METHODS get_instance
       RETURNING
         VALUE(ro_self) TYPE REF TO zcl_test .
 
     METHODS: is_mat_out_of_stock IMPORTING is_vbap TYPE vbapvb RETURNING VALUE(rv_out_of_stock) TYPE xfld,
-      check_and_popup_alt_mat CHANGING cs_vbap TYPE vbapvb ct_vbap TYPE tt_vbap OPTIONAL,
-      display_alternate_mat CHANGING cs_vbap TYPE vbapvb,
-      is_material_processed IMPORTING is_vbap TYPE vbapvb RETURNING VALUE(rv_is_mat_processed) TYPE xfld,
-      update_material_state CHANGING cs_vbap TYPE vbapvb ct_vbap TYPE tt_vbap OPTIONAL.
+      check_and_popup_alt_mat CHANGING cs_vbap  TYPE vbapvb
+                                       ct_vbap  TYPE tt_vbap OPTIONAL
+                                       cs_vbep  TYPE vbep
+                                       cs_rv45a TYPE rv45a,
+      display_alternate_mat CHANGING cs_vbap  TYPE vbapvb
+                                     cs_rv45a TYPE rv45a
+                                     cs_vbep  TYPE vbep
+                                     ct_vbap  TYPE tt_vbap.
+*      is_material_processed IMPORTING is_vbap TYPE vbapvb RETURNING VALUE(rv_is_mat_processed) TYPE xfld,
+*      update_material_state CHANGING cs_vbap TYPE vbapvb ct_vbap TYPE tt_vbap OPTIONAL.
 
   PROTECTED SECTION.
   PRIVATE SECTION.
-    DATA: mt_alt_matnr      TYPE TABLE OF string,
-          mt_material_state TYPE TABLE OF ty_material_state.
-    METHODS: fetch_alternate_mat.
-    CLASS-DATA mo_self TYPE REF TO zcl_test .
+    DATA: mt_alt_matnr      TYPE TABLE OF ty_alternate_mat.
+*          mt_material_state TYPE TABLE OF ty_material_state.
+    METHODS: fetch_alternate_mat,
+      update_material IMPORTING is_selfield TYPE slis_selfield
+                      CHANGING  cs_vbap     TYPE vbapvb
+                                cs_rv45a    TYPE rv45a
+                                cs_vbep     TYPE vbep
+                                ct_vbap     TYPE tt_vbap.
+    CLASS-DATA mo_self TYPE REF TO zcl_test.
 ENDCLASS.
 
 
@@ -68,18 +79,24 @@ CLASS ZCL_TEST IMPLEMENTATION.
 * +-------------------------------------------------------------------------------------------------+
 * | [<-->] CS_VBAP                        TYPE        VBAPVB
 * | [<-->] CT_VBAP                        TYPE        TT_VBAP(optional)
+* | [<-->] CS_VBEP                        TYPE        VBEP
+* | [<-->] CS_RV45A                       TYPE        RV45A
 * +--------------------------------------------------------------------------------------</SIGNATURE>
   METHOD check_and_popup_alt_mat.
     "Add logic to check materials & save the state in buffer
-    IF ms_material_upd_state-mat_changed = abap_true OR
-       ms_quantity_upd_state-qty_changed = abap_true.
-      IF abap_true = is_mat_out_of_stock( is_vbap = cs_vbap ).
-        display_alternate_mat( CHANGING cs_vbap = cs_vbap ).
-        update_material_state( CHANGING cs_vbap = cs_vbap ).
-      ENDIF.
-      CLEAR:ms_material_upd_state,
-            ms_quantity_upd_state.
+*    IF ms_material_upd_state-mat_changed = abap_true OR
+*       ms_quantity_upd_state-qty_changed = abap_true.
+*      IF abap_true = is_mat_out_of_stock( is_vbap = cs_vbap ).
+    IF cs_vbep-wmeng > 0 AND
+       cs_rv45a-mabnr IS NOT INITIAL.
+      display_alternate_mat( CHANGING cs_vbap = cs_vbap
+                                      cs_vbep = cs_vbep
+                                     cs_rv45a = cs_rv45a
+                                      ct_vbap = ct_vbap ).
     ENDIF.
+*      CLEAR:ms_material_upd_state,
+*            ms_quantity_upd_state.
+*    ENDIF.
   ENDMETHOD.
 
 
@@ -110,7 +127,19 @@ CLASS ZCL_TEST IMPLEMENTATION.
         it_fieldcat           = VALUE slis_t_fieldcat_alv( ( fieldname = 'MATNR'
                                                              col_pos = 1
                                                              seltext_l = 'Material'
-                                                             outputlen = 18 ) )
+                                                             outputlen = 18 )
+                                                             ( fieldname = 'MABNR'
+                                                             col_pos = 2
+                                                             seltext_l = 'Material'
+                                                             outputlen = 18 )
+                                                             ( fieldname = 'MENGE'
+                                                             col_pos = 3
+                                                             seltext_l = 'Quantity'
+                                                             outputlen = 6 )
+                                                             ( fieldname = 'MAKTX'
+                                                             col_pos = 4
+                                                             seltext_l = 'Material Description'
+                                                             outputlen = 40 ) )
         i_callback_program    = sy-repid                 " Name of the calling program
       IMPORTING
         es_selfield           = ls_selfield                  " Selection info for simple selection
@@ -126,6 +155,11 @@ CLASS ZCL_TEST IMPLEMENTATION.
     ELSE.
       IF ls_selfield-tabindex NE 0.
 *      cs_vbap-matnr = VALUE #( mt_alt_matnr[ ls_selfield-tabindex ]-matnr optional ).
+        update_material( EXPORTING is_selfield = ls_selfield
+                          CHANGING     cs_vbap = cs_vbap
+                                      cs_rv45a = cs_rv45a
+                                       cs_vbep = cs_vbep
+                                       ct_vbap = ct_vbap ).
       ENDIF.
     ENDIF.
   ENDMETHOD.
@@ -160,23 +194,6 @@ CLASS ZCL_TEST IMPLEMENTATION.
       mo_self = NEW zcl_test( ).
     ENDIF.
     ro_self = mo_self.
-
-  ENDMETHOD.
-
-
-* <SIGNATURE>---------------------------------------------------------------------------------------+
-* | Instance Public Method ZCL_TEST->IS_MATERIAL_PROCESSED
-* +-------------------------------------------------------------------------------------------------+
-* | [--->] IS_VBAP                        TYPE        VBAPVB
-* | [<-()] RV_IS_MAT_PROCESSED            TYPE        XFLD
-* +--------------------------------------------------------------------------------------</SIGNATURE>
-  METHOD is_material_processed.
-
-    IF line_exists( mt_material_state[ vbeln = is_vbap-vbeln
-                                       posnr = is_vbap-posnr
-                                   new_matnr = is_vbap-matnr ] ).
-      rv_is_mat_processed = abap_true.
-    ENDIF.
 
   ENDMETHOD.
 
@@ -222,34 +239,31 @@ CLASS ZCL_TEST IMPLEMENTATION.
 
 
 * <SIGNATURE>---------------------------------------------------------------------------------------+
-* | Instance Public Method ZCL_TEST->UPDATE_MATERIAL_STATE
+* | Instance Private Method ZCL_TEST->UPDATE_MATERIAL
 * +-------------------------------------------------------------------------------------------------+
+* | [--->] IS_SELFIELD                    TYPE        SLIS_SELFIELD
 * | [<-->] CS_VBAP                        TYPE        VBAPVB
-* | [<-->] CT_VBAP                        TYPE        TT_VBAP(optional)
+* | [<-->] CS_RV45A                       TYPE        RV45A
+* | [<-->] CS_VBRP                        TYPE        CS_VBEP
+* | [<-->] CT_VBAP                        TYPE        TT_VBAP
 * +--------------------------------------------------------------------------------------</SIGNATURE>
-  METHOD update_material_state.
+  METHOD update_material.
 
-    IF line_exists( mt_material_state[ posnr = cs_vbap-posnr ] ).
+    DATA(ls_alt_mat) = VALUE ty_alternate_mat( mt_alt_matnr[ is_selfield-tabindex ] OPTIONAL ).
 
-      DATA(ls_item_state) = mt_material_state[ posnr = cs_vbap-posnr ].
+    cs_rv45a-mabnr =
+     cs_vbap-matnr = ls_alt_mat-mabnr.
 
-      DATA(lv_tabix) = mt_material_state[ posnr = cs_vbap-posnr ].
+    cs_rv45a-arktx =
+     cs_vbap-arktx = ls_alt_mat-maktx.
 
-      MODIFY mt_material_state  FROM VALUE #( posnr = cs_vbap-posnr
-                                          old_matnr = ls_item_state-new_matnr
-                                          new_matnr = cs_vbap-matnr
-                                          old_qty   = ls_item_state-new_qty
-                                          new_qty   = cs_vbap-kwmeng
-                                          processed = abap_false ) INDEX lv_tabix.
-    ELSE.
+    cs_rv45a-kwmeng =
+     cs_vbap-kwmeng =
+      cs_vbep-wmeng = ls_alt_mat-menge.
 
-      APPEND VALUE #( posnr = cs_vbap-posnr
-                  old_matnr = cs_vbap-matnr
-                  new_matnr = cs_vbap-matnr
-                    old_qty = cs_vbap-kwmeng
-                    new_qty = cs_vbap-kwmeng
-                  processed = abap_false ) TO mt_material_state.
-    ENDIF.
+    DATA(lv_idx) = line_index( ct_vbap[ posnr = cs_vbap-posnr ] ).
+
+    MODIFY ct_vbap INDEX lv_idx FROM cs_vbap .
 
   ENDMETHOD.
 ENDCLASS.
