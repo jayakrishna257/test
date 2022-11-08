@@ -1,0 +1,134 @@
+*&---------------------------------------------------------------------*
+*& Report  ZCUST_CR
+*&
+*&---------------------------------------------------------------------*
+*&
+*&
+*&---------------------------------------------------------------------*
+REPORT zcust_cr.
+
+DATA  : ok_code TYPE sy-ucomm.
+*****************  for pic
+DATA container1     TYPE REF TO cl_gui_custom_container.
+DATA picture1       TYPE REF TO cl_gui_picture.
+DATA url1(132).
+DATA init1.
+
+
+CALL SCREEN 0101.
+*&---------------------------------------------------------------------*
+*&      Module  STATUS_0101  OUTPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE status_0101 OUTPUT.
+  SET PF-STATUS 'ZSTATUS_101'.
+  SET TITLEBAR 'ZTITLE_101'.
+
+*  * * * create the custom container
+  CREATE OBJECT container1
+    EXPORTING
+      container_name = 'PIC'.
+
+* create the picture control
+  CREATE OBJECT picture1
+    EXPORTING
+      parent = container1.
+
+* Request an URL from the data provider by exporting the pic_data.
+  CLEAR url1.
+
+  PERFORM load_pic_main_1 CHANGING url1.
+
+* load picture
+  CALL METHOD picture1->load_picture_from_url
+    EXPORTING
+      url = url1.
+
+*    init = 'X'.
+  CALL METHOD cl_gui_cfw=>flush
+    EXCEPTIONS
+      cntl_system_error = 1
+      cntl_error        = 2.
+ENDMODULE.
+*&---------------------------------------------------------------------*
+*&      Module  USER_COMMAND_0101  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE user_command_0101 INPUT.
+
+  ok_code = sy-ucomm.
+
+  CASE ok_code.
+    WHEN 'CANCEL' OR 'EXIT' OR 'BACK'.
+      CLEAR: ok_code, sy-ucomm.
+      LEAVE TO SCREEN 0.
+    WHEN 'CUST'.
+      CALL TRANSACTION 'ZCUSTM_CR'.
+    WHEN 'QUOT'.
+      CALL TRANSACTION 'ZO2_QUT'.
+    WHEN 'SO'.
+      CALL TRANSACTION 'ZO2_SALES'.
+    WHEN 'DEL'.
+      call TRANSACTION 'ZO2_DEL01'.
+      LEAVE PROGRAM.
+    WHEN 'PGI'.
+      LEAVE PROGRAM.
+    WHEN 'INV'.
+     call TRANSACTION 'ZO2_INVOICE'.
+      LEAVE PROGRAM.
+  ENDCASE.
+
+ENDMODULE.
+*&---------------------------------------------------------------------*
+*& Form LOAD_PIC_MAIN_1
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+*&      <-- URL1
+*&---------------------------------------------------------------------*
+FORM load_pic_main_1  CHANGING p_url1.
+  DATA query_table    LIKE w3query OCCURS 1 WITH HEADER LINE.
+  DATA html_table     LIKE w3html OCCURS 1.
+  DATA return_code    LIKE w3param-ret_code.
+  DATA content_type   LIKE w3param-cont_type.
+  DATA content_length LIKE w3param-cont_len.
+  DATA pic_data       LIKE w3mime OCCURS 0.
+  DATA pic_size       TYPE i.
+
+  REFRESH query_table.
+  query_table-name = '_OBJECT_ID'.
+  query_table-value = ''.
+  APPEND query_table.
+
+  CALL FUNCTION 'WWW_GET_MIME_OBJECT'
+    TABLES
+      query_string        = query_table
+      html                = html_table
+      mime                = pic_data
+    CHANGING
+      return_code         = return_code
+      content_type        = content_type
+      content_length      = content_length
+    EXCEPTIONS
+      object_not_found    = 1
+      parameter_not_found = 2
+      OTHERS              = 3.
+  IF sy-subrc = 0.
+    pic_size = content_length.
+  ENDIF.
+
+  CALL FUNCTION 'DP_CREATE_URL'
+    EXPORTING
+      type     = 'image'
+      subtype  = cndp_sap_tab_unknown
+      size     = pic_size
+      lifetime = cndp_lifetime_transaction
+    TABLES
+      data     = pic_data
+    CHANGING
+      url      = url1
+    EXCEPTIONS
+      OTHERS   = 1.
+ENDFORM.                    "load_pic_main_1
