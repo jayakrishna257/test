@@ -1,0 +1,343 @@
+*----------------------------------------------------------------------*
+***INCLUDE ZO2C_MASS_DATA_UPLOADF01.
+*----------------------------------------------------------------------*
+*&---------------------------------------------------------------------*
+*&      Form  MASS_DATA_UPLOAD
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM mass_data_upload .
+  CALL SCREEN 101 STARTING AT 35 2.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*&      Module  STATUS_0101  OUTPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE status_0101 OUTPUT.
+  SET PF-STATUS '101'.
+  SET TITLEBAR '101'.
+ENDMODULE.
+*&---------------------------------------------------------------------*
+*&      Module  FILE_PATH  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE file_path INPUT.
+  CALL FUNCTION 'F4_FILENAME' "Help for a File Path Selection
+    IMPORTING
+      file_name = p_file.
+
+ENDMODULE.
+*&---------------------------------------------------------------------*
+*&      Module  USER_COMMAND_0101  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE user_command_0101 INPUT.
+  CASE ok_101.
+    WHEN 'CANCEL'.
+      CLEAR:ok_101.
+      LEAVE TO SCREEN 0.
+    WHEN 'DOWN'.
+      CLEAR:ok_101.
+      PERFORM excel_uplaod.
+      LEAVE TO SCREEN 0.
+    WHEN ''.
+      CLEAR:ok_101.
+      PERFORM material_get.
+
+*    WHEN OTHERS.
+  ENDCASE.
+
+ENDMODULE.
+*&---------------------------------------------------------------------*
+*&      Form  EXCEL_UPLAOD
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM excel_uplaod .
+**** Get Data using Select Query
+  DATA : it_tab TYPE STANDARD TABLE OF alsmex_tabline,
+         wa_tab TYPE alsmex_tabline.
+
+  REFRESH it_tab.
+  CLEAR it_tab.
+
+  CALL FUNCTION 'ALSM_EXCEL_TO_INTERNAL_TABLE'
+    EXPORTING
+      filename                = p_file
+      i_begin_col             = 1
+      i_begin_row             = 2
+      i_end_col               = 10
+      i_end_row               = 10000
+    TABLES
+      intern                  = it_tab
+    EXCEPTIONS
+      inconsistent_parameters = 1
+      upload_ole              = 2
+      OTHERS                  = 3.
+
+  SORT it_tab BY row col.
+
+
+  IF it_tab[] IS NOT INITIAL.
+    LOOP AT it_tab INTO wa_tab .
+      CASE wa_tab-col.
+        WHEN '0001'.
+          wa_item-mabnr = wa_tab-value.
+        WHEN '0002'.
+          wa_item-kwmeng = wa_tab-value.
+        WHEN '0003'.
+          wa_item-kbetr = wa_tab-value.
+        WHEN '0004'.
+          wa_item-werks = wa_tab-value.
+        WHEN '0005'.
+          wa_item-lgort = wa_tab-value.
+      ENDCASE.
+
+      AT END OF row.
+        APPEND wa_item TO it_item.
+        CLEAR wa_item.
+      ENDAT.
+    ENDLOOP.
+  ELSE.
+    LEAVE LIST-PROCESSING.
+  ENDIF.
+
+
+
+  LOOP AT it_item INTO wa_item.
+    SELECT SINGLE maktx
+      INTO wa_item-maktx
+      FROM makt
+      WHERE matnr = wa_item-mabnr.
+
+    IF sy-subrc EQ 0.
+      wa_item-id = '@5B@'.
+    ELSE.
+      wa_item-id = '@5C@'.
+    ENDIF.
+
+
+    MODIFY it_item FROM wa_item TRANSPORTING maktx id.
+    CLEAR:wa_item.
+  ENDLOOP.
+
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*&      Form  MATERIAL_GET
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM material_get .
+  DATA:e_days TYPE vtbbewe-atage.
+  CLEAR:e_days,
+  bezei_1,vtext_1,vtext_2,
+  vtext_3,bezei_2,bezei_3,name1.
+
+***************************************
+
+
+
+**************************************
+  CALL FUNCTION 'FIMA_DAYS_AND_MONTHS_AND_YEARS'
+    EXPORTING
+      i_date_from = wa_header-angdt
+*     I_KEY_DAY_FROM       =
+      i_date_to   = wa_header-bnddt
+*     I_KEY_DAY_TO         =
+*     I_FLG_SEPARATE       = ' '
+    IMPORTING
+      e_days      = e_days
+*     E_MONTHS    =
+*     E_YEARS     =
+    .
+
+  IF e_days > 15.
+    ans = 'D'.
+  ENDIF.
+
+  IF ans NE 'D'.
+*  if ANGNR is NOT INITIAL.
+    IF angnr_t NE angnr.
+      CLEAR: wa_header,it_header[],
+             wa_item  ,it_item[].
+    ENDIF.
+
+    CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+      EXPORTING
+        input  = angnr
+      IMPORTING
+        output = angnr.
+
+*IF wa_header-AUART IS INITIAL.
+    IF angnr IS NOT INITIAL.
+      SELECT SINGLE auart
+                      vkorg
+                      vtweg
+                      spart
+                      vkbur
+                      vkgrp
+                      kunnr
+                      angdt
+                      bnddt FROM vbak
+          INTO wa_header
+          WHERE vbeln  = angnr.
+    ENDIF.
+*****************************************
+    SELECT SINGLE bezei
+     FROM tvakt
+     INTO bezei_1
+     WHERE spras = 'E'
+     AND   auart = wa_header-auart.
+
+    SELECT SINGLE vtext
+      FROM tvkot
+      INTO vtext_1
+      WHERE spras = 'E'
+      AND   vkorg = wa_header-vkorg.
+
+
+    SELECT SINGLE vtext
+    FROM tvtwt
+    INTO vtext_2
+     WHERE spras = 'E'
+     AND   vtweg = wa_header-vtweg.
+
+    SELECT SINGLE vtext
+  FROM tspat
+  INTO vtext_3
+  WHERE spras = 'E'
+  AND   spart = wa_header-spart.
+
+    SELECT SINGLE bezei
+    FROM tvkbt
+    INTO bezei_2
+    WHERE spras = 'E'
+    AND   vkbur = wa_header-vkbur.
+
+    SELECT SINGLE bezei
+    FROM tvgrt
+    INTO bezei_3
+    WHERE spras = 'E'
+    AND   vkgrp = wa_header-vkgrp.
+
+    SELECT SINGLE name1
+      INTO name1
+      FROM kna1
+      WHERE kunnr = wa_header-kunnr.
+
+
+
+* ENDIF.
+
+    IF it_item[] IS INITIAL.
+      SELECT vbeln,
+             posnr,
+             matnr AS  mabnr,
+*         maktx
+             kwmeng,
+             netwr  AS kbetr,
+             werks,
+             lgort FROM vbap
+        INTO TABLE @DATA(it_vbap)
+        WHERE vbeln = @angnr.
+
+      DATA:kposn TYPE konv-kposn.
+      CLEAR:it_item[],wa_item,kposn.
+      LOOP AT it_vbap INTO DATA(wa_vbap).
+        MOVE-CORRESPONDING wa_vbap TO wa_item.
+        WA_ITEM-kwert1 = WA_ITEM-kbetr / 10.
+
+        kposn = kposn + 10.
+
+        SELECT SINGLE knumv """""""""""" Gross value
+          INTO @DATA(knumv)
+          FROM vbak
+          WHERE vbeln = @angnr.
+
+        SELECT SINGLE kwert
+          INTO wa_item-kwert
+          FROM konv
+          WHERE knumv = knumv
+          AND   kposn = kposn
+          AND   kschl = 'ZPR0'.
+*        and   STUNR BETWEEN 20 and 50.
+***********************************************
+        SELECT SINGLE mwsbp
+          FROM vbap
+          INTO @wa_item-mwsbp
+          WHERE vbeln  = @angnr
+          AND   posnr  = @kposn.
+
+        wa_item-tot_amt  =   wa_item-kbetr + wa_item-mwsbp.
+        wa_item-werks    = 'PD01'.
+
+        SELECT SINGLE land1
+          INTO @DATA(land1)
+          FROM kna1
+          WHERE kunnr = @wa_header-kunnr.
+
+
+
+        SELECT SINGLE waers
+          INTO wa_item-waers
+          FROM t005
+          WHERE land1 = land1.
+        APPEND wa_item TO it_item.
+        CLEAR:wa_item,wa_vbap.
+      ENDLOOP.
+    ENDIF.
+
+    angnr_t = angnr.
+*ENDIF.
+
+    LOOP AT it_item INTO wa_item.
+      SELECT SINGLE maktx
+        INTO wa_item-maktx
+        FROM makt
+        WHERE matnr = wa_item-mabnr.
+      IF sy-subrc EQ 0  .
+        IF wa_item-mabnr IS NOT INITIAL.
+          wa_item-id = '@5B@'.
+        ENDIF.
+      ELSE.
+        IF wa_item-mabnr IS NOT INITIAL.
+          wa_item-id = '@5C@'.
+        ENDIF.
+      ENDIF.
+
+      wa_item-werks    = 'PD01'.
+
+      SELECT SINGLE LGORT
+        INTO WA_ITEM-LGORT
+        FROM MARD
+        WHERE MATNR =  WA_ITEM-MABNR
+        AND   WERKS =  WA_ITEM-WERKS.
+
+
+      MODIFY it_item FROM wa_item TRANSPORTING maktx id werks LGORT.
+      CLEAR:wa_item.
+    ENDLOOP.
+
+**    do 10 TIMES.
+**      CLEAR:wa_item.
+**      APPEND wa_item to it_item.
+**      CLEAR:wa_item.
+**    ENDDO.
+  ELSE.
+    MESSAGE :'Quotation is invalid and create new' TYPE 'I' DISPLAY LIKE 'E'.
+  ENDIF.
+ENDFORM.
