@@ -1,0 +1,73 @@
+*----------------------------------------------------------------------*
+***INCLUDE ZO2_QUOTATION_ERROR_DISPLAYF01.
+*----------------------------------------------------------------------*
+*&---------------------------------------------------------------------*
+*&      Form  ERROR_DISPLAY
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM error_display .
+  TYPE-POOLS : slis.
+*------------------------------------------------------------------*
+*Data Declaration
+*------------------------------------------------------------------*
+  DATA:i_repid LIKE sy-repid,
+       title   TYPE char70.
+  i_repid = sy-repid.
+
+  "NUMBER
+  "
+
+  DATA: wa_fcat  TYPE slis_fieldcat_alv,
+        fcat     TYPE slis_t_fieldcat_alv,
+        wa_fcat1 TYPE slis_fieldcat_alv,
+        fcat1    TYPE slis_t_fieldcat_alv.
+  CLEAR:fcat1[],wa_fcat,
+        wa_fcat1,fcat1.
+
+  wa_fcat1-row_pos   = '1'.
+  wa_fcat1-col_pos   = '1'.
+  wa_fcat1-fieldname = 'NUMBER'.
+  wa_fcat1-tabname   = 'IT_ERROR'.
+  wa_fcat1-seltext_m = 'Number'.
+  wa_fcat1-emphasize = 'C100'.
+  APPEND wa_fcat1 TO fcat1.
+  CLEAR wa_fcat1.
+
+  wa_fcat1-row_pos   = '1'.
+  wa_fcat1-col_pos   = '2'.
+  wa_fcat1-fieldname = 'MESSAGE'.
+  wa_fcat1-tabname   = 'RETURN'.
+  wa_fcat1-seltext_m = 'IT_ERRORS'.
+  wa_fcat1-outputlen = '30'.
+  wa_fcat1-emphasize = 'C100'.
+  APPEND wa_fcat1 TO fcat1.
+  CLEAR wa_fcat1.
+
+  CALL FUNCTION 'REUSE_ALV_GRID_DISPLAY'
+    EXPORTING
+      i_callback_program    = i_repid
+      i_grid_title          = 'Error Message'
+      it_fieldcat           = fcat1
+      i_screen_start_column = 3
+      i_screen_start_line   = 5
+      i_screen_end_column   = 143
+      i_screen_end_line     = 10
+*      i_callback_pf_status_set = 'ZSTANDARD'
+    TABLES
+      t_outtab              = it_error
+    EXCEPTIONS
+      program_error         = 1
+      OTHERS                = 2.
+  IF sy-subrc <> 0.
+    MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
+            WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+  ENDIF.
+
+
+
+
+ENDFORM.
