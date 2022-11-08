@@ -1,0 +1,1454 @@
+*&---------------------------------------------------------------------*
+*& Report  ZO2C
+*&---------------------------------------------------------------------*
+*& Created By   : Yash Dhadake
+*& Requested By :
+*& Date         : 04.08.2022.
+*& TR No.       :
+*& TCode        :
+*& Devlopment ID:
+*& Description  :
+*&---------------------------------------------------------------------*
+REPORT zo2_quotation.
+*&---------------------------------------------------------------------*
+*& External Table Declaration                                          *
+*&---------------------------------------------------------------------*
+
+*&---------------------------------------------------------------------*
+*& Internal Table Declaration                                          *
+*&---------------------------------------------------------------------*
+TYPES:BEGIN OF ty_header,
+        auart TYPE vbak-auart, "Quotation type
+        vkorg TYPE vbak-vkorg, "Sales Organiza
+        vtweg TYPE vbak-vtweg, "Distribution
+        spart TYPE vbak-spart, "Division
+        vkbur TYPE vbak-vkbur, "Sales Office
+        vkgrp TYPE vbak-vkgrp, "Sales Group
+
+        kunnr TYPE kuagv-kunnr, "Sold-To Party
+        angdt TYPE vbak-angdt, "Valid from
+        bnddt TYPE vbak-bnddt, "Valid to
+      END OF ty_header.
+
+TYPES:BEGIN OF ty_item,
+        sel,
+        mabnr   TYPE rv45a-mabnr,  " Material
+        maktx   TYPE makt-maktx,   " Description
+        kwmeng  TYPE rv45a-kwmeng, " Quantity
+        kbetr   TYPE komv-kbetr,   " Amount
+        werks   TYPE vbap-werks,   " Plant
+        lgort   TYPE vbap-lgort,   " storage location
+        id      TYPE icon-id,
+
+        kwert   TYPE BSEG-MENGE,"konv-kwert, "Condition value
+        kwert1  TYPE BSEG-MENGE,
+        mwsbp   TYPE vbap-mwsbp, "Tax amount
+        tot_amt TYPE komv-kbetr,
+        waers   TYPE t005-waers,
+      END OF  ty_item.
+
+DATA:it_header TYPE STANDARD TABLE OF ty_header,
+     wa_header TYPE ty_header,
+     it_item   TYPE STANDARD TABLE OF ty_item,
+     wa_item   TYPE ty_item.
+
+DATA:angnr   TYPE angnr, " Quotation Number.
+     angnr_t TYPE angnr.
+**************************** Text Name.
+DATA:bezei_1 TYPE tvakt-bezei,   "quotation_type,
+     vtext_1 TYPE tvkot-vtext,   "sales_org,
+     vtext_2 TYPE tvtwt-vtext,   "distribution_channel,
+     vtext_3 TYPE tspat-vtext,   "division,
+     bezei_2 TYPE tvkbt-bezei,   "sales_office,
+     bezei_3 TYPE tvgrt-bezei,   "sales_group,
+     name1   TYPE kna1-name1.    "ship to party.
+*&---------------------------------------------------------------------*
+*& Variables Declaration                                               *
+*&---------------------------------------------------------------------*
+DATA:ok_9001 TYPE sy-ucomm.
+DATA: ans,
+      p_file   TYPE localfile,
+      return   TYPE  bapireturn1,
+      it_error TYPE STANDARD TABLE OF bapireturn1
+      WITH HEADER LINE  ,
+      pp.
+*&---------------------------------------------------------------------*
+DATA ok_101 TYPE sy-ucomm.
+*& At Selection Screen                                                 *
+*&---------------------------------------------------------------------*
+AT SELECTION-SCREEN.
+
+*&---------------------------------------------------------------------*
+*& Initialization Event                                                *
+*&---------------------------------------------------------------------*
+INITIALIZATION.
+
+*&---------------------------------------------------------------------*
+*& Start of Selection Event                                            *
+*&---------------------------------------------------------------------*
+START-OF-SELECTION.
+  PERFORM call_screen.
+*&---------------------------------------------------------------------*
+*&      Form  CALL_SCREEN
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM call_screen .
+  CALL SCREEN 9001.
+ENDFORM.
+
+*&SPWIZARD: DECLARATION OF TABLECONTROL 'SCREEN_ITEM' ITSELF
+CONTROLS: screen_item TYPE TABLEVIEW USING SCREEN 9001.
+
+*&SPWIZARD: LINES OF TABLECONTROL 'SCREEN_ITEM'
+DATA:     g_screen_item_lines  LIKE sy-loopc.
+
+DATA:     ok_code LIKE sy-ucomm.
+
+*&SPWIZARD: OUTPUT MODULE FOR TC 'SCREEN_ITEM'. DO NOT CHANGE THIS LINE!
+*&SPWIZARD: UPDATE LINES FOR EQUIVALENT SCROLLBAR
+MODULE screen_item_change_tc_attr OUTPUT.
+  DESCRIBE TABLE it_item LINES screen_item-lines.
+ENDMODULE.
+
+*&SPWIZARD: OUTPUT MODULE FOR TC 'SCREEN_ITEM'. DO NOT CHANGE THIS LINE!
+*&SPWIZARD: GET LINES OF TABLECONTROL
+MODULE screen_item_get_lines OUTPUT.
+  g_screen_item_lines = sy-loopc.
+ENDMODULE.
+
+*&SPWIZARD: INPUT MODULE FOR TC 'SCREEN_ITEM'. DO NOT CHANGE THIS LINE!
+*&SPWIZARD: MODIFY TABLE
+MODULE screen_item_modify INPUT.
+  MODIFY it_item
+    FROM wa_item
+    INDEX screen_item-current_line.
+  IF sy-subrc <> 0.
+    APPEND wa_item TO it_item.
+  ENDIF.
+ENDMODULE.
+
+*&SPWIZARD: INPUT MODUL FOR TC 'SCREEN_ITEM'. DO NOT CHANGE THIS LINE!
+*&SPWIZARD: MARK TABLE
+MODULE screen_item_mark INPUT.
+  DATA: g_screen_item_wa2 LIKE LINE OF it_item.
+  IF screen_item-line_sel_mode = 1
+  AND wa_item-sel = 'X'.
+    LOOP AT it_item INTO g_screen_item_wa2
+      WHERE sel = 'X'.
+      g_screen_item_wa2-sel = ''.
+      MODIFY it_item
+        FROM g_screen_item_wa2
+        TRANSPORTING sel.
+    ENDLOOP.
+  ENDIF.
+  MODIFY it_item
+    FROM wa_item
+    INDEX screen_item-current_line
+    TRANSPORTING sel.
+ENDMODULE.
+
+*&SPWIZARD: INPUT MODULE FOR TC 'SCREEN_ITEM'. DO NOT CHANGE THIS LINE!
+*&SPWIZARD: PROCESS USER COMMAND
+MODULE screen_item_user_command INPUT.
+  ok_code = sy-ucomm.
+  PERFORM user_ok_tc USING    'SCREEN_ITEM'
+                              'IT_ITEM'
+                              'SEL'
+                     CHANGING ok_code.
+  sy-ucomm = ok_code.
+ENDMODULE.
+
+*----------------------------------------------------------------------*
+*   INCLUDE TABLECONTROL_FORMS                                         *
+*----------------------------------------------------------------------*
+
+*&---------------------------------------------------------------------*
+*&      Form  USER_OK_TC                                               *
+*&---------------------------------------------------------------------*
+FORM user_ok_tc USING    p_tc_name TYPE dynfnam
+                         p_table_name
+                         p_mark_name
+                CHANGING p_ok      LIKE sy-ucomm.
+
+*&SPWIZARD: BEGIN OF LOCAL DATA----------------------------------------*
+  DATA: l_ok     TYPE sy-ucomm,
+        l_offset TYPE i.
+*&SPWIZARD: END OF LOCAL DATA------------------------------------------*
+
+*&SPWIZARD: Table control specific operations                          *
+*&SPWIZARD: evaluate TC name and operations                            *
+  SEARCH p_ok FOR p_tc_name.
+  IF sy-subrc <> 0.
+    EXIT.
+  ENDIF.
+  l_offset = strlen( p_tc_name ) + 1.
+  l_ok = p_ok+l_offset.
+*&SPWIZARD: execute general and TC specific operations                 *
+  CASE l_ok.
+    WHEN 'INSR'.                      "insert row
+      PERFORM fcode_insert_row USING    p_tc_name
+                                        p_table_name.
+      CLEAR p_ok.
+
+    WHEN 'DELE'.                      "delete row
+      PERFORM fcode_delete_row USING    p_tc_name
+                                        p_table_name
+                                        p_mark_name.
+      CLEAR p_ok.
+
+    WHEN 'P--' OR                     "top of list
+         'P-'  OR                     "previous page
+         'P+'  OR                     "next page
+         'P++'.                       "bottom of list
+      PERFORM compute_scrolling_in_tc USING p_tc_name
+                                            l_ok.
+      CLEAR p_ok.
+*     WHEN 'L--'.                       "total left
+*       PERFORM FCODE_TOTAL_LEFT USING P_TC_NAME.
+*
+*     WHEN 'L-'.                        "column left
+*       PERFORM FCODE_COLUMN_LEFT USING P_TC_NAME.
+*
+*     WHEN 'R+'.                        "column right
+*       PERFORM FCODE_COLUMN_RIGHT USING P_TC_NAME.
+*
+*     WHEN 'R++'.                       "total right
+*       PERFORM FCODE_TOTAL_RIGHT USING P_TC_NAME.
+*
+    WHEN 'MARK'.                      "mark all filled lines
+      PERFORM fcode_tc_mark_lines USING p_tc_name
+                                        p_table_name
+                                        p_mark_name   .
+      CLEAR p_ok.
+
+    WHEN 'DMRK'.                      "demark all filled lines
+      PERFORM fcode_tc_demark_lines USING p_tc_name
+                                          p_table_name
+                                          p_mark_name .
+      CLEAR p_ok.
+
+*     WHEN 'SASCEND'   OR
+*          'SDESCEND'.                  "sort column
+*       PERFORM FCODE_SORT_TC USING P_TC_NAME
+*                                   l_ok.
+
+  ENDCASE.
+
+ENDFORM.                              " USER_OK_TC
+
+*&---------------------------------------------------------------------*
+*&      Form  FCODE_INSERT_ROW                                         *
+*&---------------------------------------------------------------------*
+FORM fcode_insert_row
+              USING    p_tc_name           TYPE dynfnam
+                       p_table_name             .
+
+*&SPWIZARD: BEGIN OF LOCAL DATA----------------------------------------*
+  DATA l_lines_name       LIKE feld-name.
+  DATA l_selline          LIKE sy-stepl.
+  DATA l_lastline         TYPE i.
+  DATA l_line             TYPE i.
+  DATA l_table_name       LIKE feld-name.
+  FIELD-SYMBOLS <tc>                 TYPE cxtab_control.
+  FIELD-SYMBOLS <table>              TYPE STANDARD TABLE.
+  FIELD-SYMBOLS <lines>              TYPE i.
+*&SPWIZARD: END OF LOCAL DATA------------------------------------------*
+
+  ASSIGN (p_tc_name) TO <tc>.
+
+*&SPWIZARD: get the table, which belongs to the tc                     *
+  CONCATENATE p_table_name '[]' INTO l_table_name. "table body
+  ASSIGN (l_table_name) TO <table>.                "not headerline
+
+*&SPWIZARD: get looplines of TableControl                              *
+  CONCATENATE 'G_' p_tc_name '_LINES' INTO l_lines_name.
+  ASSIGN (l_lines_name) TO <lines>.
+
+*&SPWIZARD: get current line                                           *
+  GET CURSOR LINE l_selline.
+  IF sy-subrc <> 0.                   " append line to table
+    l_selline = <tc>-lines + 1.
+*&SPWIZARD: set top line                                               *
+    IF l_selline > <lines>.
+      <tc>-top_line = l_selline - <lines> + 1 .
+    ELSE.
+      <tc>-top_line = 1.
+    ENDIF.
+  ELSE.                               " insert line into table
+    l_selline = <tc>-top_line + l_selline - 1.
+    l_lastline = <tc>-top_line + <lines> - 1.
+  ENDIF.
+*&SPWIZARD: set new cursor line                                        *
+  l_line = l_selline - <tc>-top_line + 1.
+
+*&SPWIZARD: insert initial line                                        *
+  INSERT INITIAL LINE INTO <table> INDEX l_selline.
+  <tc>-lines = <tc>-lines + 1.
+*&SPWIZARD: set cursor                                                 *
+  SET CURSOR LINE l_line.
+
+ENDFORM.                              " FCODE_INSERT_ROW
+
+*&---------------------------------------------------------------------*
+*&      Form  FCODE_DELETE_ROW                                         *
+*&---------------------------------------------------------------------*
+FORM fcode_delete_row
+              USING    p_tc_name           TYPE dynfnam
+                       p_table_name
+                       p_mark_name   .
+
+*&SPWIZARD: BEGIN OF LOCAL DATA----------------------------------------*
+  DATA l_table_name       LIKE feld-name.
+
+  FIELD-SYMBOLS <tc>         TYPE cxtab_control.
+  FIELD-SYMBOLS <table>      TYPE STANDARD TABLE.
+  FIELD-SYMBOLS <wa>.
+  FIELD-SYMBOLS <mark_field>.
+*&SPWIZARD: END OF LOCAL DATA------------------------------------------*
+
+  ASSIGN (p_tc_name) TO <tc>.
+
+*&SPWIZARD: get the table, which belongs to the tc                     *
+  CONCATENATE p_table_name '[]' INTO l_table_name. "table body
+  ASSIGN (l_table_name) TO <table>.                "not headerline
+
+*&SPWIZARD: delete marked lines                                        *
+  DESCRIBE TABLE <table> LINES <tc>-lines.
+
+  LOOP AT <table> ASSIGNING <wa>.
+
+*&SPWIZARD: access to the component 'FLAG' of the table header         *
+    ASSIGN COMPONENT p_mark_name OF STRUCTURE <wa> TO <mark_field>.
+
+    IF <mark_field> = 'X'.
+      DELETE <table> INDEX syst-tabix.
+      IF sy-subrc = 0.
+        <tc>-lines = <tc>-lines - 1.
+      ENDIF.
+    ENDIF.
+  ENDLOOP.
+
+ENDFORM.                              " FCODE_DELETE_ROW
+
+*&---------------------------------------------------------------------*
+*&      Form  COMPUTE_SCROLLING_IN_TC
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*      -->P_TC_NAME  name of tablecontrol
+*      -->P_OK       ok code
+*----------------------------------------------------------------------*
+FORM compute_scrolling_in_tc USING    p_tc_name
+                                      p_ok.
+*&SPWIZARD: BEGIN OF LOCAL DATA----------------------------------------*
+  DATA l_tc_new_top_line     TYPE i.
+  DATA l_tc_name             LIKE feld-name.
+  DATA l_tc_lines_name       LIKE feld-name.
+  DATA l_tc_field_name       LIKE feld-name.
+
+  FIELD-SYMBOLS <tc>         TYPE cxtab_control.
+  FIELD-SYMBOLS <lines>      TYPE i.
+*&SPWIZARD: END OF LOCAL DATA------------------------------------------*
+
+  ASSIGN (p_tc_name) TO <tc>.
+*&SPWIZARD: get looplines of TableControl                              *
+  CONCATENATE 'G_' p_tc_name '_LINES' INTO l_tc_lines_name.
+  ASSIGN (l_tc_lines_name) TO <lines>.
+
+
+*&SPWIZARD: is no line filled?                                         *
+  IF <tc>-lines = 0.
+*&SPWIZARD: yes, ...                                                   *
+    l_tc_new_top_line = 1.
+  ELSE.
+*&SPWIZARD: no, ...                                                    *
+    CALL FUNCTION 'SCROLLING_IN_TABLE'
+      EXPORTING
+        entry_act      = <tc>-top_line
+        entry_from     = 1
+        entry_to       = <tc>-lines
+        last_page_full = 'X'
+        loops          = <lines>
+        ok_code        = p_ok
+        overlapping    = 'X'
+      IMPORTING
+        entry_new      = l_tc_new_top_line
+      EXCEPTIONS
+*       NO_ENTRY_OR_PAGE_ACT  = 01
+*       NO_ENTRY_TO    = 02
+*       NO_OK_CODE_OR_PAGE_GO = 03
+        OTHERS         = 0.
+  ENDIF.
+
+*&SPWIZARD: get actual tc and column                                   *
+  GET CURSOR FIELD l_tc_field_name
+             AREA  l_tc_name.
+
+  IF syst-subrc = 0.
+    IF l_tc_name = p_tc_name.
+*&SPWIZARD: et actual column                                           *
+      SET CURSOR FIELD l_tc_field_name LINE 1.
+    ENDIF.
+  ENDIF.
+
+*&SPWIZARD: set the new top line                                       *
+  <tc>-top_line = l_tc_new_top_line.
+
+
+ENDFORM.                              " COMPUTE_SCROLLING_IN_TC
+
+*&---------------------------------------------------------------------*
+*&      Form  FCODE_TC_MARK_LINES
+*&---------------------------------------------------------------------*
+*       marks all TableControl lines
+*----------------------------------------------------------------------*
+*      -->P_TC_NAME  name of tablecontrol
+*----------------------------------------------------------------------*
+FORM fcode_tc_mark_lines USING p_tc_name
+                               p_table_name
+                               p_mark_name.
+*&SPWIZARD: EGIN OF LOCAL DATA-----------------------------------------*
+  DATA l_table_name       LIKE feld-name.
+
+  FIELD-SYMBOLS <tc>         TYPE cxtab_control.
+  FIELD-SYMBOLS <table>      TYPE STANDARD TABLE.
+  FIELD-SYMBOLS <wa>.
+  FIELD-SYMBOLS <mark_field>.
+*&SPWIZARD: END OF LOCAL DATA------------------------------------------*
+
+  ASSIGN (p_tc_name) TO <tc>.
+
+*&SPWIZARD: get the table, which belongs to the tc                     *
+  CONCATENATE p_table_name '[]' INTO l_table_name. "table body
+  ASSIGN (l_table_name) TO <table>.                "not headerline
+
+*&SPWIZARD: mark all filled lines                                      *
+  LOOP AT <table> ASSIGNING <wa>.
+
+*&SPWIZARD: access to the component 'FLAG' of the table header         *
+    ASSIGN COMPONENT p_mark_name OF STRUCTURE <wa> TO <mark_field>.
+
+    <mark_field> = 'X'.
+  ENDLOOP.
+ENDFORM.                                          "fcode_tc_mark_lines
+
+*&---------------------------------------------------------------------*
+*&      Form  FCODE_TC_DEMARK_LINES
+*&---------------------------------------------------------------------*
+*       demarks all TableControl lines
+*----------------------------------------------------------------------*
+*      -->P_TC_NAME  name of tablecontrol
+*----------------------------------------------------------------------*
+FORM fcode_tc_demark_lines USING p_tc_name
+                                 p_table_name
+                                 p_mark_name .
+*&SPWIZARD: BEGIN OF LOCAL DATA----------------------------------------*
+  DATA l_table_name       LIKE feld-name.
+
+  FIELD-SYMBOLS <tc>         TYPE cxtab_control.
+  FIELD-SYMBOLS <table>      TYPE STANDARD TABLE.
+  FIELD-SYMBOLS <wa>.
+  FIELD-SYMBOLS <mark_field>.
+*&SPWIZARD: END OF LOCAL DATA------------------------------------------*
+
+  ASSIGN (p_tc_name) TO <tc>.
+
+*&SPWIZARD: get the table, which belongs to the tc                     *
+  CONCATENATE p_table_name '[]' INTO l_table_name. "table body
+  ASSIGN (l_table_name) TO <table>.                "not headerline
+
+*&SPWIZARD: demark all filled lines                                    *
+  LOOP AT <table> ASSIGNING <wa>.
+
+*&SPWIZARD: access to the component 'FLAG' of the table header         *
+    ASSIGN COMPONENT p_mark_name OF STRUCTURE <wa> TO <mark_field>.
+
+    <mark_field> = space.
+  ENDLOOP.
+ENDFORM.                                          "fcode_tc_mark_lines
+*&---------------------------------------------------------------------*
+*&      Module  STATUS_9001  OUTPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE status_9001 OUTPUT.
+  SET PF-STATUS '9001'.
+  SET TITLEBAR '9001'.
+***********************
+  IF pp NE 'X'.
+    SELECT MAX( erdat )
+      FROM vbak
+      INTO @DATA(erdat).
+
+    SELECT MAX( erzet )
+    FROM vbak
+    INTO @DATA(erzet)
+    WHERE erdat = @erdat.
+
+    SELECT SINGLE vbeln
+      INTO angnr
+      FROM vbak
+      WHERE erdat = erdat
+      AND   erzet = erzet.
+  ENDIF.
+
+
+*********************
+
+  LOOP AT SCREEN.
+    IF screen-group1 = 'GR1'.
+      screen-input = '0'.
+    ENDIF.
+    MODIFY SCREEN.
+  ENDLOOP.
+
+**  LOOP AT SCREEN.
+**    IF screen-group1 = 'AN1'.
+**      screen-input = '0'.
+**    ENDIF.
+**    MODIFY SCREEN.
+**  ENDLOOP.
+
+  LOOP AT SCREEN.
+    IF screen-name EQ 'ANGNR'.
+      screen-input = 0.
+    ENDIF.
+    MODIFY SCREEN.
+  ENDLOOP.
+
+  IF ans = 'O'.
+    LOOP AT SCREEN.
+      IF screen-name EQ 'ANGNR'.
+        screen-input = 1.
+      ENDIF.
+
+      IF screen-group1 = 'HID'.
+        screen-input = '0'.
+      ENDIF.
+      MODIFY SCREEN.
+    ENDLOOP.
+  ELSEIF  ans = 'N'.
+    CLEAR:angnr.
+    LOOP AT SCREEN.
+      IF screen-name EQ 'ANGNR'.
+        screen-input = 0.
+      ENDIF.
+      IF screen-group1 = 'HID'.
+        screen-input = '1'.
+      ENDIF.
+      MODIFY SCREEN.
+    ENDLOOP.
+  ENDIF.
+  IF ans = 'C'.
+    LOOP AT SCREEN.
+      IF screen-group2 = 'CHA'.
+        screen-input = '0'.
+      ENDIF.
+      MODIFY SCREEN.
+    ENDLOOP.
+
+  ENDIF.
+ENDMODULE.
+*&---------------------------------------------------------------------*
+*&      Module  USER_COMMAND_9001  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE user_command_9001 INPUT.
+  CASE ok_9001.
+    WHEN 'BACK' OR 'UP' OR 'EXIT'.
+      CLEAR:ok_9001.
+      LEAVE TO SCREEN 0.
+    WHEN 'DOWN'.
+      CLEAR:ok_9001.
+      PERFORM excel_formate_download.
+    WHEN 'UPD'.
+      CLEAR ok_9001.
+      PERFORM mass_data_upload.
+    WHEN '' OR 'SCREEN_ITEM_INSR'.
+      CLEAR:ok_9001.
+      PERFORM material_get.
+    WHEN 'SAVE'.
+      CLEAR:ok_9001.
+      IF angnr IS INITIAL.
+*        PERFORM data_save.
+        PERFORM data_save_2.
+        PERFORM material_get.
+      ELSE.
+        PERFORM  change_que_data.
+      ENDIF.
+    WHEN 'NEW'.
+      CLEAR:ok_9001,ans,angnr.
+      ans = 'N'.
+      PERFORM qua_new.
+      CLEAR:pp.
+    WHEN 'OPEN'."
+      CLEAR:ok_9001,ans.
+      ans = 'O'.
+      PERFORM open_en.
+      pp = 'X'.
+    WHEN 'CHA'.
+      CLEAR:ok_9001,ans.
+      ans = 'C'.
+      pp = 'X'.
+
+    WHEN 'PRINT'.
+      PERFORM pop_up_to_smf.
+    WHEN 'SAL'.
+      CLEAR ok_9001.
+      SUBMIT zo2_sales_order .
+
+
+    WHEN OTHERS.
+
+  ENDCASE.
+
+ENDMODULE.
+*&---------------------------------------------------------------------*
+*&      Form  EXCEL_FORMATE_DOWNLOAD
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM excel_formate_download .
+  TYPES:BEGIN OF ty_header,
+          material         TYPE string,
+*       Description         type string,
+          quantityv        TYPE string,
+          amount           TYPE string,
+          plant            TYPE string,
+          storage_location TYPE string,
+        END OF ty_header.
+
+  DATA:lv_header  TYPE  ty_header,
+       it_formate TYPE TABLE OF ty_header.
+
+
+  TRY.
+      DATA:it_columns TYPE if_fdt_doc_spreadsheet=>t_column.
+
+
+      DATA(o_desc) = CAST cl_abap_structdescr( cl_abap_structdescr=>describe_by_data( lv_header ) ).
+
+      LOOP AT o_desc->get_components( ) ASSIGNING FIELD-SYMBOL(<c>).
+        IF <c> IS ASSIGNED.
+          IF <c>-type->kind = cl_abap_structdescr=>kind_elem.
+            APPEND VALUE #( id = sy-index
+                            name = <c>-name
+                            display_name = <c>-name
+                            is_result    = abap_true
+                            type = <c>-type ) TO it_columns.
+          ENDIF.
+        ENDIF.
+      ENDLOOP.
+
+      DATA(lv_bin_data) = cl_fdt_xl_spreadsheet=>if_fdt_doc_spreadsheet~create_document( columns = it_columns
+                                                                                         itab = REF #( it_formate )
+                                                                                         iv_call_type = if_fdt_doc_spreadsheet=>gc_call_dec_table
+                                                                                         iv_sheet_name = 'All Item for Quotation ').
+
+      IF xstrlen( lv_bin_data ) > 0.
+        DATA: lv_action   TYPE i,
+              lv_filename TYPE string,
+              lv_fullpath TYPE string,
+              lv_path     TYPE string.
+
+        cl_gui_frontend_services=>file_save_dialog( EXPORTING
+                                                    default_file_name = 'Quotation Formate'
+                                                    file_filter       = |Excel-File (*.xlsx)\|*.xlsx\|{ cl_gui_frontend_services=>filetype_all }|
+                                                    CHANGING
+                                                     filename = lv_filename
+                                                     path     = lv_path
+                                                     fullpath = lv_fullpath
+                                                     user_action = lv_action ).
+
+        IF lv_action EQ cl_gui_frontend_services=>action_ok.
+          DATA(it_raw_data)  = cl_bcs_convert=>xstring_to_solix( EXPORTING iv_xstring = lv_bin_data ).
+          cl_gui_frontend_services=>gui_download( EXPORTING
+                                                  filename = lv_fullpath
+                                                  filetype  = 'BIN'
+                                                  bin_filesize = xstrlen( lv_bin_data )
+                                                  CHANGING
+                                                    data_tab  = it_raw_data ).
+        ENDIF.
+      ENDIF.
+    CATCH cx_root INTO DATA(e_text).
+      MESSAGE e_text->get_text( ) TYPE 'S' DISPLAY LIKE 'E'.
+  ENDTRY.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*&      Module  QUOTATION_TYPE  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE quotation_type INPUT.
+
+  SELECT auart,bezei
+    FROM tvakt
+    INTO TABLE @DATA(it_tvakt)
+    WHERE spras = 'E'.
+
+  CALL FUNCTION 'F4IF_INT_TABLE_VALUE_REQUEST'
+    EXPORTING
+      retfield    = 'AUART'
+      dynpprog    = sy-repid
+      dynpnr      = sy-dynnr
+      dynprofield = 'WA_HEADER-AUART'
+      value_org   = 'S'
+    TABLES
+      value_tab   = it_tvakt[].
+
+
+ENDMODULE.
+*&---------------------------------------------------------------------*
+*&      Module  SALES_ORG  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE sales_org INPUT.
+  SELECT vkorg,vtext
+    FROM tvkot
+    INTO TABLE @DATA(it_tvkot)
+    WHERE spras = 'E'.
+
+  CALL FUNCTION 'F4IF_INT_TABLE_VALUE_REQUEST'
+    EXPORTING
+      retfield    = 'VKORG'
+      dynpprog    = sy-repid
+      dynpnr      = sy-dynnr
+      dynprofield = 'WA_HEADER-VKORG'
+      value_org   = 'S'
+    TABLES
+      value_tab   = it_tvkot[].
+
+
+ENDMODULE.
+*&---------------------------------------------------------------------*
+*&      Module  DISTRIBUTION_CHANNEL  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE distribution_channel INPUT.
+
+  SELECT vtweg,vtext
+    FROM tvtwt
+    INTO TABLE @DATA(it_tvtw)
+     WHERE spras = 'E'.
+
+
+  CALL FUNCTION 'F4IF_INT_TABLE_VALUE_REQUEST'
+    EXPORTING
+      retfield    = 'VTWEG'
+      dynpprog    = sy-repid
+      dynpnr      = sy-dynnr
+      dynprofield = 'WA_HEADER-VTWEG'
+      value_org   = 'S'
+    TABLES
+      value_tab   = it_tvtw[].
+
+ENDMODULE.
+*&---------------------------------------------------------------------*
+*&      Module  DIVISION  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE division INPUT.
+  SELECT spart,vtext
+    FROM tspat
+    INTO TABLE @DATA(it_tspat)
+    WHERE spras = 'E'.
+
+  CALL FUNCTION 'F4IF_INT_TABLE_VALUE_REQUEST'
+    EXPORTING
+      retfield    = 'SPART'
+      dynpprog    = sy-repid
+      dynpnr      = sy-dynnr
+      dynprofield = 'WA_HEADER-SPART'
+      value_org   = 'S'
+    TABLES
+      value_tab   = it_tspat[].
+
+ENDMODULE.
+*&---------------------------------------------------------------------*
+*&      Module  SALES_OFFICE  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE sales_office INPUT.
+  SELECT vkbur,bezei
+    FROM tvkbt
+    INTO TABLE @DATA(it_tvkbt)
+    WHERE spras = 'E'.
+
+  CALL FUNCTION 'F4IF_INT_TABLE_VALUE_REQUEST'
+    EXPORTING
+      retfield    = 'VKBUR'
+      dynpprog    = sy-repid
+      dynpnr      = sy-dynnr
+      dynprofield = 'WA_HEADER-VKBUR'
+      value_org   = 'S'
+    TABLES
+      value_tab   = it_tvkbt[].
+
+
+
+ENDMODULE.
+*&---------------------------------------------------------------------*
+*&      Module  SALES_GROUP  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE sales_group INPUT.
+  SELECT vkgrp,bezei
+    FROM tvgrt
+    INTO TABLE @DATA(it_tvgrt)
+    WHERE spras = 'E'.
+
+  CALL FUNCTION 'F4IF_INT_TABLE_VALUE_REQUEST'
+    EXPORTING
+      retfield    = 'VKGRP'
+      dynpprog    = sy-repid
+      dynpnr      = sy-dynnr
+      dynprofield = 'WA_HEADER-VKGRP'
+      value_org   = 'S'
+    TABLES
+      value_tab   = it_tvgrt[].
+
+ENDMODULE.
+*&---------------------------------------------------------------------*
+*&      Form  POP_UP_UPLOAD
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM pop_up_upload .
+  CLEAR:ans.
+  CALL FUNCTION 'POPUP_TO_CONFIRM'
+    EXPORTING
+      text_question         =
+                              'Do you Want To Save The Data? '
+      text_button_1         = 'Yes'
+      icon_button_1         = 'ICON_OKAY'
+      text_button_2         = 'No'
+      icon_button_2         = 'ICON_CANCEL'
+      display_cancel_button = ' '
+    IMPORTING
+      answer                = ans
+* TABLES
+*     PARAMETER             =
+    EXCEPTIONS
+      text_not_found        = 1
+      OTHERS                = 2.
+
+
+ENDFORM.
+
+INCLUDE zo2c_y_mass_data_uploadf01.
+*INCLUDE zo2c_mass_data_uploadf01.
+*&---------------------------------------------------------------------*
+*&      Form  DATA_SAVE
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM data_save .
+  DATA:order_header_in    LIKE bapisdhead,
+       order_items_in     TYPE STANDARD TABLE OF  bapiitemin WITH HEADER LINE,
+       order_partners     TYPE STANDARD TABLE OF  bapipartnr WITH HEADER LINE,
+       order_items_out    TYPE STANDARD TABLE OF  bapiitemex,
+       order_cfgs_ref     TYPE STANDARD TABLE OF  bapicucfg,
+       order_cfgs_inst    TYPE STANDARD TABLE OF  bapicuins,
+       order_cfgs_part_of TYPE STANDARD TABLE OF  bapicuprt,
+       order_cfgs_value   TYPE STANDARD TABLE OF  bapicuval,
+       itm_number         TYPE bapipartnr-itm_number.
+************************************************************
+  DATA:salesdocument TYPE  bapivbeln-vbeln,
+       sold_to_party TYPE  bapisoldto,
+       ship_to_party TYPE  bapishipto,
+       billing_party TYPE  bapipayer.
+
+
+
+
+  CLEAR:order_header_in,
+        order_items_in[],order_items_in,
+        order_partners[],order_partners.
+
+*  READ TABLE it_header INTO wa_header INDEX 1.
+*  IF sy-subrc EQ 0.
+  order_header_in-doc_type                  = wa_header-auart.
+  order_header_in-sales_org                 = wa_header-vkorg.
+  order_header_in-distr_chan                = wa_header-vtweg.
+  order_header_in-division                  = wa_header-spart.
+  order_header_in-sales_off                 = wa_header-vkbur.
+
+  order_header_in-qt_valid_f  = wa_header-angdt.
+  order_header_in-qt_valid_t  = wa_header-bnddt.
+*  ENDIF.
+
+  LOOP AT it_item INTO wa_item.
+    itm_number = itm_number + 10.
+
+    order_items_in-itm_number = itm_number.
+
+    CALL FUNCTION 'CONVERSION_EXIT_MATN1_INPUT'
+      EXPORTING
+        input  = wa_item-mabnr
+      IMPORTING
+        output = order_items_in-material.
+
+    order_items_in-plant         = wa_item-werks.
+    order_items_in-store_loc     = wa_item-lgort.
+    order_items_in-target_qty    = wa_item-kwmeng .
+    order_items_in-target_qu     =  'EA'.
+    order_items_in-req_qty       = wa_item-kwmeng.
+    order_items_in-sales_unit    = 'EA'.
+    order_items_in-item_categ    = 'AGN'.
+
+
+    APPEND order_items_in.
+    CLEAR:order_items_in,wa_item.
+  ENDLOOP.
+
+  order_partners-partn_role  = 'AG'.
+  CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+    EXPORTING
+      input  = wa_header-kunnr
+    IMPORTING
+      output = wa_header-kunnr.
+  order_partners-partn_numb  = wa_header-kunnr.
+  APPEND order_partners.
+
+
+
+
+  CALL FUNCTION 'BAPI_QUOTATION_CREATEFROMDATA'
+    EXPORTING
+      order_header_in    = order_header_in
+*     WITHOUT_COMMIT     = ' '
+*     CONVERT_PARVW_AUART       = ' '
+    IMPORTING
+      salesdocument      = salesdocument
+      sold_to_party      = sold_to_party
+      ship_to_party      = ship_to_party
+      billing_party      = billing_party
+      return             = return
+    TABLES
+      order_items_in     = order_items_in[]
+      order_partners     = order_partners[]
+      order_items_out    = order_items_out[]
+      order_cfgs_ref     = order_cfgs_ref[]
+      order_cfgs_inst    = order_cfgs_inst[]
+      order_cfgs_part_of = order_cfgs_part_of[]
+      order_cfgs_value   = order_cfgs_value[]
+*     NFMETALLITMS       =
+    .
+
+  CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
+    EXPORTING
+      wait = 'X'.
+
+  IF salesdocument IS NOT INITIAL.
+    CONCATENATE 'Quotation No Generated Successfully : '  salesdocument
+    INTO DATA(msg) SEPARATED BY space.
+    MESSAGE: msg TYPE 'I'.
+
+    CLEAR:ans.
+    CALL FUNCTION 'POPUP_TO_CONFIRM'
+      EXPORTING
+        text_question         =
+                                'Do you Want Print the Form? '
+        text_button_1         = 'Yes'
+        icon_button_1         = 'ICON_OKAY'
+        text_button_2         = 'No'
+        icon_button_2         = 'ICON_CANCEL'
+        display_cancel_button = ' '
+      IMPORTING
+        answer                = ans
+* TABLES
+*       PARAMETER             =
+      EXCEPTIONS
+        text_not_found        = 1
+        OTHERS                = 2.
+    IF ans = '1'.
+
+    ENDIF.
+  ELSEIF return IS NOT INITIAL.
+    it_error-number =  return-number.
+    it_error-message  = return-message.
+    APPEND it_error.
+    PERFORM:error_display.
+  ENDIF.
+
+
+
+
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*&      Form  QUA_NEW
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM qua_new .
+  CLEAR:wa_header,it_item[],wa_item,angnr,
+        bezei_1,vtext_1,vtext_2,
+        vtext_3,bezei_2,bezei_3,name1.
+
+
+SELECT SINGLE auart FROM zo2c_quot_screen INTO wa_header-auart WHERE username = sy-uname.
+SELECT SINGLE vkorg FROM zo2c_quot_screen INTO wa_header-vkorg WHERE username = sy-uname.
+SELECT SINGLE vtweg FROM zo2c_quot_screen INTO wa_header-vtweg WHERE username = sy-uname.
+SELECT SINGLE spart FROM zo2c_quot_screen INTO wa_header-spart WHERE username = sy-uname.
+wa_header-auart = 'ZPQT'.
+wa_header-vkorg =  'SBAP'.
+wa_header-vtweg =  'DD'.
+wa_header-spart =  'PN'.
+
+
+  wa_header-angdt = sy-datum.
+  CALL FUNCTION 'RP_CALC_DATE_IN_INTERVAL'
+    EXPORTING
+      date      = wa_header-angdt
+      days      = '15'
+      months    = '00'
+      signum    = '+'
+      years     = '00'
+    IMPORTING
+      calc_date = wa_header-bnddt.
+  LOOP AT SCREEN.
+    IF screen-group1 = 'AN1'.
+      screen-input = '0'.
+    ENDIF.
+    MODIFY SCREEN.
+  ENDLOOP.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*&      Form  OPEN_EN
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM open_en .
+**  if ANGNR is NOT INITIAL.
+**  CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+**    EXPORTING
+**      input         = ANGNR
+**   IMPORTING
+**     OUTPUT        = ANGNR.
+**
+**select SINGLE auart
+**                vkorg
+**                vtweg
+**                spart
+**                vkbur
+**                vkgrp
+**                kunnr
+**                angdt
+**                bnddt from VBAK
+**    INTO wa_header
+**    WHERE VBELN  = ANGNR.
+**
+**  select VBELN,
+**         POSNR,
+**         matnr as  MABNR,
+***         maktx
+**         KWMENG,
+**         NETWR  as KBETR,
+**         WERKS,
+**         LGORT FROM VBAP
+**    INTO TABLE @data(it_VBAP)
+**    WHERE VBELN = @ANGNR.
+**
+**CLEAR:it_item[],wa_item.
+**    LOOP AT it_VBAP INTO data(wa_VBAP).
+**      MOVE-CORRESPONDING wa_VBAP to wa_item.
+**      COLLECT wa_item into it_item.
+**      CLEAR:wa_item,wa_vbap.
+**    ENDLOOP.
+**ENDIF.
+**
+**LOOP AT IT_ITEM INTO wa_ITEM.
+**    SELECT SINGLE maktx
+**      INTO wa_ITEM-maktx
+**      FROM makt
+**      WHERE matnr = wa_ITEM-MABNR.
+**      if sy-subrc eq 0  .
+**        if wa_ITEM-MABNR is NOT INITIAL.
+**        wa_item-id = '@5B@'.
+**        endif.
+**      else.
+**        if wa_ITEM-MABNR is NOT INITIAL.
+**        wa_item-id = '@5C@'.
+**        ENDIF.
+**      ENDIF.
+**
+**  MODIFY IT_ITEM FROM wa_item TRANSPORTING maktx id.
+**  CLEAR:wa_item.
+** ENDLOOP.
+
+
+ENDFORM.
+
+INCLUDE zo2_quotation_error_displayf01.
+*&---------------------------------------------------------------------*
+*&      Form  POP_UP_TO_SMF
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM pop_up_to_smf .
+  CLEAR:ans.
+  CALL FUNCTION 'POPUP_TO_CONFIRM'
+    EXPORTING
+      text_question         =
+                              'Do you Want Print the Form? '
+      text_button_1         = 'Yes'
+      icon_button_1         = 'ICON_OKAY'
+      text_button_2         = 'No'
+      icon_button_2         = 'ICON_CANCEL'
+      display_cancel_button = ' '
+    IMPORTING
+      answer                = ans
+* TABLES
+*     PARAMETER             =
+    EXCEPTIONS
+      text_not_found        = 1
+      OTHERS                = 2.
+  IF ans = '1'.
+
+  ENDIF.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*&      Module  SALES_ORD_NO  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE sales_ord_no INPUT.
+
+  SELECT vbeln
+    INTO TABLE @DATA(it_vbeln)
+    FROM vbak
+    WHERE auart = 'ZPQT'.
+
+  CALL FUNCTION 'F4IF_INT_TABLE_VALUE_REQUEST'
+    EXPORTING
+      retfield    = 'ANGNR'
+      dynpprog    = sy-repid
+      dynpnr      = sy-dynnr
+      dynprofield = 'ANGNR'
+      value_org   = 'S'
+    TABLES
+      value_tab   = it_vbeln[].
+
+ENDMODULE.
+*&---------------------------------------------------------------------*
+*&      Form  CHANGE_QUE_DATA
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM change_que_data .
+  DATA: quotation_header_inx TYPE  bapisdh1x,
+        return               TYPE STANDARD TABLE OF  bapiret2,
+        quotation_item_in    TYPE STANDARD TABLE OF bapisditm
+           WITH HEADER LINE,
+        itm_number           TYPE bapisditm-itm_number.
+
+  CLEAR:quotation_header_inx,
+        return[]            ,return,
+        quotation_item_in[] ,quotation_item_in.
+
+  quotation_header_inx-updateflag = 'U'.
+
+  LOOP AT it_item INTO wa_item WHERE mabnr IS NOT INITIAL.
+    itm_number = itm_number + 10.
+    quotation_item_in-itm_number = itm_number.
+
+
+    CALL FUNCTION 'CONVERSION_EXIT_MATN1_INPUT'
+      EXPORTING
+        input  = wa_item-mabnr
+      IMPORTING
+        output = quotation_item_in-material.
+
+    quotation_item_in-target_qty  = wa_item-kwmeng.
+    APPEND quotation_item_in.
+    CLEAR:quotation_item_in,wa_item.
+  ENDLOOP.
+
+
+
+
+  CALL FUNCTION 'BAPI_CUSTOMERQUOTATION_CHANGE'
+    EXPORTING
+      salesdocument        = angnr
+*     QUOTATION_HEADER_IN  =
+      quotation_header_inx = quotation_header_inx
+*     SIMULATION           =
+*     BEHAVE_WHEN_ERROR    =
+*     INT_NUMBER_ASSIGNMENT        =
+*     LOGIC_SWITCH         =
+*     NO_STATUS_BUF_INIT   = ' '
+    TABLES
+      return               = return[]
+      quotation_item_in    = quotation_item_in[].
+
+
+  CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
+    EXPORTING
+      wait = 'X'.
+
+  IF return[] IS NOT INITIAL.
+    LOOP AT return INTO DATA(wa) WHERE number = '311'.
+      it_error-number =  wa-number.
+      it_error-message  = wa-message.
+      APPEND it_error.
+    ENDLOOP.
+  ENDIF.
+  PERFORM:error_display.
+
+
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*&      Form  DATA_SAVE_2
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM data_save_2 .
+  DATA: salesdocumentin          TYPE bapivbeln-vbeln,
+        quotation_header_in      TYPE bapisdhd1,
+        quotation_header_inx     TYPE bapisdhd1x,
+        itm_number               TYPE bapipartnr-itm_number,
+        salesdocument            LIKE  bapivbeln-vbeln,
+
+        return                   TYPE STANDARD TABLE OF bapiret2   WITH HEADER LINE,
+        quotation_items_in       TYPE STANDARD TABLE OF bapisditm  WITH HEADER LINE,
+        quotation_items_inx      TYPE STANDARD TABLE OF bapisditmx WITH HEADER LINE,
+        quotation_partners       TYPE STANDARD TABLE OF bapiparnr  WITH HEADER LINE,
+        quotation_schedules_in   TYPE STANDARD TABLE OF bapischdl  WITH HEADER LINE,
+        quotation_schedules_inx  TYPE STANDARD TABLE OF bapischdlx WITH HEADER LINE,
+        quotation_conditions_in  TYPE STANDARD TABLE OF bapicond   WITH HEADER LINE,
+        quotation_conditions_inx TYPE STANDARD TABLE OF bapicondx  WITH HEADER LINE.
+
+  quotation_header_in-doc_type        = wa_header-auart.
+  quotation_header_in-sales_org       = wa_header-vkorg.
+  quotation_header_in-distr_chan      = wa_header-vtweg.
+  quotation_header_in-division        = wa_header-spart.
+  quotation_header_in-sales_off       = wa_header-vkbur.
+
+  quotation_header_in-req_date_h          = sy-datum.
+
+  quotation_header_in-qt_valid_f          = wa_header-angdt.
+  quotation_header_in-qt_valid_t          = wa_header-bnddt.
+
+  LOOP AT it_item INTO wa_item.
+    itm_number = itm_number + 10.
+
+    quotation_items_in-itm_number = itm_number.
+    CALL FUNCTION 'CONVERSION_EXIT_MATN1_INPUT'
+      EXPORTING
+        input  = wa_item-mabnr
+      IMPORTING
+        output = quotation_items_in-material.
+
+    quotation_items_in-plant            = wa_item-werks.
+    quotation_items_in-store_loc        = wa_item-lgort.
+    quotation_items_in-target_qty       = wa_item-kwmeng.
+    quotation_items_in-target_qu        = 'EA'.
+    quotation_items_in-t_unit_iso       = 'EA'.
+
+
+    quotation_items_inx-itm_number   = itm_number.
+    quotation_items_inx-material     = 'X'.
+    quotation_items_inx-plant        = 'X'.
+    quotation_items_inx-store_loc    = 'X'.
+    quotation_items_inx-target_qty   = 'X'.
+    quotation_items_inx-target_qu    = 'X'.
+
+    quotation_schedules_in-itm_number  = itm_number.
+    quotation_schedules_in-req_date    = sy-datum.
+    quotation_schedules_in-req_qty     = wa_item-kwmeng.
+
+    quotation_schedules_inx-itm_number = itm_number.
+    quotation_schedules_inx-req_date   = 'X'.
+    quotation_schedules_inx-req_qty    = 'X'.
+
+*    ITM_NUMBER
+*    COND_ST_NO
+*    COND_COUNT
+*    COND_TYPE
+*    COND_VALUE
+*
+
+
+
+    APPEND: quotation_items_in,quotation_items_inx,
+            quotation_schedules_in,quotation_schedules_inx.
+    CLEAR:quotation_items_in,wa_item,quotation_items_inx.
+  ENDLOOP.
+
+
+  quotation_partners-partn_role  = 'AG'.
+  CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+    EXPORTING
+      input  = wa_header-kunnr
+    IMPORTING
+      output = wa_header-kunnr.
+
+  quotation_partners-partn_numb  = wa_header-kunnr.
+  APPEND quotation_partners.
+
+  CALL FUNCTION 'BAPI_QUOTATION_CREATEFROMDATA2'
+    EXPORTING
+      salesdocumentin         = salesdocumentin
+      quotation_header_in     = quotation_header_in
+      quotation_header_inx    = quotation_header_inx
+    IMPORTING
+      salesdocument           = salesdocument
+    TABLES
+      return                  = return[]
+      quotation_items_in      = quotation_items_in[]
+      quotation_items_inx     = quotation_items_inx[]
+      quotation_partners      = quotation_partners[]
+      quotation_schedules_in  = quotation_schedules_in[]
+      quotation_schedules_inx = quotation_schedules_inx[].
+
+  CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
+    EXPORTING
+      wait = 'X'.
+
+  IF salesdocument IS NOT INITIAL.
+    CONCATENATE 'Quotation No Generated Successfully : '  salesdocument
+    INTO DATA(msg) SEPARATED BY space.
+    MESSAGE: msg TYPE 'I'.
+
+    ANGNR = salesdocument.
+
+    CLEAR:ans.
+    CALL FUNCTION 'POPUP_TO_CONFIRM'
+      EXPORTING
+        text_question         =
+                                'Do you Want Print the Form? '
+        text_button_1         = 'Yes'
+        icon_button_1         = 'ICON_OKAY'
+        text_button_2         = 'No'
+        icon_button_2         = 'ICON_CANCEL'
+        display_cancel_button = ' '
+      IMPORTING
+        answer                = ans
+* TABLES
+*       PARAMETER             =
+      EXCEPTIONS
+        text_not_found        = 1
+        OTHERS                = 2.
+    IF ans = '1'.
+
+    ENDIF.
+  ELSEIF return[] IS NOT INITIAL.
+    LOOP AT return.
+      it_error-number =  return-number.
+      it_error-message  = return-message.
+      APPEND it_error.
+      CLEAR:it_error,return.
+    ENDLOOP.
+    PERFORM:error_display.
+  ENDIF.
+
+
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*&      Module  MATERIAL  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE material INPUT.
+   SELECT A~matnr,
+          B~MAKTX
+    FROM MVKE AS A
+    INNER JOIN MAKT AS B ON B~MATNR = A~MATNR
+    INTO TABLE @DATA(it_mara)
+    WHERE VKORG = 'SBAP'.
+
+  CALL FUNCTION 'F4IF_INT_TABLE_VALUE_REQUEST'
+    EXPORTING
+      retfield    = 'MATNR'
+      dynpprog    = sy-repid
+      dynpnr      = sy-dynnr
+      dynprofield = 'WA_ITEM-MABNR'
+      value_org   = 'S'
+    TABLES
+      value_tab   = it_mara[].
+
+ENDMODULE.
+*&---------------------------------------------------------------------*
+*&      Module  PLANT  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE plant INPUT.
+  SELECT BWKEY
+    FROM T001K
+    INTO TABLE @DATA(it_T001K)
+    WHERE BUKRS = 'SBA'.
+
+  CALL FUNCTION 'F4IF_INT_TABLE_VALUE_REQUEST'
+    EXPORTING
+      retfield    = 'BWKEY'
+      dynpprog    = sy-repid
+      dynpnr      = sy-dynnr
+      dynprofield = 'WA_ITEM-WERKS'
+      value_org   = 'S'
+    TABLES
+      value_tab   = it_T001K[].
+
+ENDMODULE.
+*&---------------------------------------------------------------------*
+*&      Module  STR_LOG  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE str_log INPUT.
+  SELECT DISTINCT LGORT
+    INTO TABLE @DATA(IT_LGORT)
+    FROM MARD.
+
+    CALL FUNCTION 'F4IF_INT_TABLE_VALUE_REQUEST'
+    EXPORTING
+      retfield    = 'LGORT'
+      dynpprog    = sy-repid
+      dynpnr      = sy-dynnr
+      dynprofield = 'WA_ITEM-LGORT'
+      value_org   = 'S'
+    TABLES
+      value_tab   = IT_LGORT[].
+
+
+ENDMODULE.
